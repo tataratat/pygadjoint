@@ -61,7 +61,7 @@ GISMO_OPTIONS = [
                     "dim": f"{dim}",
                     "index": "1",
                 },
-                "text": f"{neumann_flux_}*1.1 - z + x * 4",
+                "text": f"{neumann_flux_}*(1.1 - z + x * 4)",
             },
         ],
     },
