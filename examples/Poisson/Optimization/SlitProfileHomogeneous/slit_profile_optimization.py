@@ -11,7 +11,7 @@ import pygadjoints
 # SIMULATION PARAMETERS
 ###
 ULTRA_VERBOSE = True
-N_THREAD = 4
+N_THREAD = 1
 
 ###
 # MATERIAL PARAMETERS
@@ -59,9 +59,9 @@ GISMO_OPTIONS = [
                 "attributes": {
                     "type": "FunctionExpr",
                     "dim": f"{dim}",
-                    "index": "1.1 - z + x * 4",
+                    "index": "1",
                 },
-                "text": f"{neumann_flux_}",
+                "text": f"{neumann_flux_}*1.1 - z + x * 4",
             },
         ],
     },
