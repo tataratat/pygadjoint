@@ -446,7 +446,7 @@ class Optimizer:
             ),
             # constraints=self.constraint(),
             options={"disp": True},
-            tol=1e-5
+            tol=1e-6
         )
         # Finalize
         self.finalize(optim.x)
@@ -477,8 +477,8 @@ def main():
     parameter_spline_cps_dimensions = [4, 2, 2]
     parameter_default_value = 0.12
 
-    scaling_factor_objective_function = 10
-    parameter_scaling_value = 1
+    scaling_factor_objective_function = 3.065
+    parameter_scaling_value = 20
     n_refinemenets = 0
 
     sp.settings.NTHREADS = 1
