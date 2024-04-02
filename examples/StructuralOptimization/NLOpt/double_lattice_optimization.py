@@ -1,8 +1,7 @@
+import nlopt
 import numpy as np
-import scipy
 import splinepy as sp
 from options import gismo_options
-import nlopt
 
 import pygadjoints
 
@@ -23,6 +22,8 @@ class Optimizer:
         objective_function_type=1,
         macro_ctps=None,
         parameter_default_value=0.1,
+        macro_sym_spline=None,
+        microtile_sym=None,
     ):
         self.parameter_default_value = parameter_default_value
         self.n_refinements = n_refinements
@@ -44,23 +45,26 @@ class Optimizer:
         self.write_logfiles = write_logfiles
         self.max_volume = max_volume
         self.macro_ctps = macro_ctps
+        self.macro_sym_spline = macro_sym_spline
+        self.microtile_sym = microtile_sym
 
     def prepare_microstructure(self):
         def parametrization_function(x):
             """
             Parametrization Function (determines thickness)
             """
-            return self.para_spline.evaluate(x)
+            return np.tile(self.para_spline.evaluate(x), (1, 2))
 
         def parameter_sensitivity_function(x):
-            basis_function_matrix = np.zeros(
-                (x.shape[0], self.para_spline.control_points.shape[0])
+            return np.tile(
+                sp.utils.data.make_matrix(
+                    *self.para_spline.basis_and_support(x),
+                    self.para_spline.cps.shape[0],
+                    as_array=True,
+                ),
+                (1, 2, self.para_spline.cps.shape[0]),
             )
-            basis_functions, support = self.para_spline.basis_and_support(x)
-            np.put_along_axis(
-                basis_function_matrix, support, basis_functions, axis=1
-            )
-            return basis_function_matrix.reshape(x.shape[0], 1, -1)
+            # .reshape(x.shape[0], 1, self.para_spline.cps.shape[0])
 
         # Initialize microstructure generator and assign values
         generator = sp.microstructure.Microstructure()
@@ -72,12 +76,14 @@ class Optimizer:
             parameter_sensitivity_function
         )
 
-        # Creator for identifier functions
-        def identifier_function(deformation_function, face_id):
-            boundary_spline = deformation_function.extract.boundaries()[
-                face_id
-            ]
+        # Initialize microstructure generator and assign values
+        generator_sym = sp.microstructure.Microstructure()
+        generator_sym.deformation_function = self.macro_sym_spline
+        generator_sym.tiling = [1, self.tiling[0]]
+        generator_sym.microtile = self.microtile_sym
 
+        # Creator for identifier functions
+        def identifier_function(deformation_function, boundary_spline):
             def identifier_function(x):
                 distance_2_boundary = boundary_spline.proximities(
                     queries=x,
@@ -89,22 +95,59 @@ class Optimizer:
 
             return identifier_function
 
-        multipatch = generator.create(
+        multipatch_sym = generator_sym.create()
+        multipatch_opt = generator.create(
             contact_length=0.5, macro_sensitivities=True
         )
+        multipatch = sp.Multipatch(
+            multipatch_opt.patches + multipatch_sym.patches
+        )
 
+        for i_field, _ in enumerate(multipatch_opt.fields):
+            multipatch.add_fields(
+                [
+                    multipatch_opt.fields[i_field].patches  # ],
+                    + [None] * len(multipatch_sym.patches)
+                ],
+                field_dim=2,
+            )
+            print(i_field)
         # Reuse existing interfaces
         if self.interfaces is None:
             multipatch.determine_interfaces()
-            for i in range(self.macro_spline.dim * 2):
-                multipatch.boundary_from_function(
-                    identifier_function(generator.deformation_function, i)
+
+            # Boundary 2: dirichlet bottom
+            multipatch.boundary_from_function(
+                identifier_function(
+                    generator.deformation_function,
+                    self.macro_spline.extract.boundaries(boundary_ids=[0])[0],
                 )
+            )
+
+            # Boundary 3: dirichlet symmetry
+            multipatch.boundary_from_function(
+                identifier_function(
+                    generator.deformation_function,
+                    self.macro_sym_spline.extract.boundaries(boundary_ids=[1])[
+                        0
+                    ],
+                )
+            )
+
+            # Boundary 4: neumann
+            multipatch.boundary_from_function(
+                identifier_function(
+                    generator.deformation_function,
+                    self.macro_sym_spline.extract.boundaries(boundary_ids=[3])[
+                        0
+                    ],
+                )
+            )
 
             if self.identifier_function_neumann is not None:
                 multipatch.boundary_from_function(
                     self.identifier_function_neumann, mask=[5]
-                    )
+                )
 
             self.interfaces = multipatch.interfaces
         else:
@@ -135,7 +178,7 @@ class Optimizer:
             : self.para_spline.cps.shape[0]
         ].reshape(-1, 1)
         self.macro_spline.cps.ravel()[self.macro_ctps] = (
-            parameters[self.para_spline.cps.shape[0]:]
+            parameters[self.para_spline.cps.shape[0] :]
             + self.macro_spline_original.cps.ravel()[self.macro_ctps]
         )
         self.prepare_microstructure()
@@ -194,6 +237,7 @@ class Optimizer:
         return self.current_objective_function_value
 
     def objective_function_nlopt(self, parameters, grad):
+        print(parameters)
         self.ensure_parameters(parameters)
         obj = self.evaluate_iteration(parameters)
         if grad.size > 0:
@@ -290,8 +334,8 @@ class Optimizer:
         #     method="SLSQP",
         #     jac=self.evaluate_jacobian,
         #     bounds=(
-        #         [(0.0111, 0.206) for _ in range(n_design_vars_para)]
-        #         + [(-1.5, 1.5) for _ in range(n_design_vars_macro)]
+        #         [(0.02, 0.19) for _ in range(n_design_vars_para)]
+        #         + [(-10, 10) for _ in range(n_design_vars_macro)]
         #     ),
         #     constraints=self.constraint(),
         #     options={"disp": True},
@@ -299,16 +343,13 @@ class Optimizer:
         # final_params = optim.x
 
         opt_nl = nlopt.opt(
-            nlopt.LD_SLSQP,
-            (n_design_vars_para + n_design_vars_macro)
+            nlopt.LD_SLSQP, (n_design_vars_para + n_design_vars_macro)
         )
         opt_nl.set_lower_bounds(
-            [0.0111 for _ in range(n_design_vars_para)]
-            + [-1.5 for _ in range(n_design_vars_macro)]
+            [0.02] * n_design_vars_para + [-1.5] * n_design_vars_macro
         )
         opt_nl.set_upper_bounds(
-            [0.206 for _ in range(n_design_vars_para)]
-            + [1.5 for _ in range(n_design_vars_macro)]
+            [0.19] * n_design_vars_para + [1.5] * n_design_vars_macro
         )
         opt_nl.set_min_objective(self.objective_function_nlopt)
         opt_nl.add_inequality_constraint(self.constraint_nlopt, 1e-8)
@@ -335,10 +376,10 @@ def main():
     # pygdjoints)
 
     # Geometry definition
-    tiling = [6, 24]
+    tiling = [5, 10]
     parameter_spline_degrees = [1, 1]
-    parameter_spline_cps_dimensions = [5, 13]
-    parameter_default_value = 0.2
+    parameter_spline_cps_dimensions = [3, 3]
+    parameter_default_value = 0.15
 
     scaling_factor_objective_function = 1e-3
 
@@ -381,17 +422,63 @@ def main():
         pass
 
     macro_spline = sp.Bezier(
-        degrees=[1, 2],
+        degrees=[2, 1],
         control_points=[
+            [20.0, 0.0],
+            [20.0, 40.0],
+            [60.0, 40.0],
             [0.0, 0.0],
-            [1.0, 0.0],
-            [0.0, 3.0],
-            [1.0, 2.0],
-            [3.0, 3.0],
-            [3.0, 2.0],
+            [0.0, 60.0],
+            [60.0, 60.0],
         ],
     )
-    
+
+    macro_sym_spline = sp.Bezier(
+        degrees=[1, 1],
+        control_points=[
+            [60.0, 40.0],
+            [65.0, 40.0],
+            [60.0, 60.0],
+            [65.0, 60.0],
+        ],
+    )
+    microtile_spline_list = []
+    microtile_spline_list.append(
+        sp.Bezier(
+            degrees=[1, 1],
+            control_points=[
+                [0, 0],
+                [1, 0],
+                [0, 0.25],
+                [1, 0.25],
+            ],
+        )
+    )
+
+    microtile_spline_list.append(
+        sp.Bezier(
+            degrees=[1, 1],
+            control_points=[
+                [0, 0.25],
+                [1, 0.25],
+                [0, 0.75],
+                [1, 0.75],
+            ],
+        )
+    )
+
+    microtile_spline_list.append(
+        sp.Bezier(
+            degrees=[1, 1],
+            control_points=[
+                [0, 0.75],
+                [1, 0.75],
+                [0, 1],
+                [1, 1],
+            ],
+        )
+    )
+
     print(f"Max Volume is:{macro_spline.integrate.volume()}")
 
     optimizer = Optimizer(
@@ -401,12 +488,14 @@ def main():
         identifier_function_neumann=None,
         tiling=tiling,
         scaling_factor_objective_function=scaling_factor_objective_function,
-        n_refinements=1,
-        n_threads=32,
+        n_refinements=0,
+        n_threads=8,
         write_logfiles=write_logfiles,
-        max_volume=3.0,
+        max_volume=1200,
         macro_ctps=[4, 5, 6, 7],
         parameter_default_value=parameter_default_value,
+        macro_sym_spline=macro_sym_spline,
+        microtile_sym=microtile_spline_list,
     )
 
     # Try some parameters

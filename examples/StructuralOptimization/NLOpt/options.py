@@ -65,7 +65,7 @@ gismo_options = [
                     "type": "Dirichlet",
                     "function": "0",
                     "unknown": "0",
-                    "name": "BID4",
+                    "name": "BID2",
                 },
             },
             {
@@ -74,7 +74,16 @@ gismo_options = [
                     "type": "Dirichlet",
                     "function": "0",
                     "unknown": "1",
-                    "name": "BID4",
+                    "name": "BID2",
+                },
+            },
+            {
+                "tag": "bc",
+                "attributes": {
+                    "type": "Dirichlet",
+                    "function": "0",
+                    "unknown": "0",
+                    "name": "BID3",
                 },
             },
             {
@@ -83,7 +92,7 @@ gismo_options = [
                     "type": "Neumann",
                     "function": "2",
                     "unknown": "0",
-                    "name": "BID5",
+                    "name": "BID4",
                 },
             },
         ],
