@@ -128,7 +128,7 @@ spp.io.gismo.export(
 print("Test 1")
 
 linear_elasticity_solver = pyg.LinearElasticityProblem()
-linear_elasticity_solver.init("mini_example.xml", 0)
+linear_elasticity_solver.init("mini_example.xml", 0, 0, False)
 linear_elasticity_solver.set_material_constants(lambda_, mu_)
 linear_elasticity_solver.assemble()
 linear_elasticity_solver.solve_linear_system()
