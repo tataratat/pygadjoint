@@ -262,7 +262,7 @@ class Optimizer:
             * inverse_scaling
         )
         self.macro_spline.cps.ravel()[self.macro_ctps] = (
-            parameters[self.para_spline.cps.shape[0]:]
+            parameters[self.para_spline.cps.shape[0] :]
             + self.macro_spline_original.cps.ravel()[self.macro_ctps]
         )
         self.prepare_microstructure()
@@ -438,7 +438,8 @@ class Optimizer:
                 [
                     (
                         0.01111 * self.parameter_scaling,
-                        0.4 * self.parameter_scaling,  # Max value is 0.5/expansion
+                        0.4
+                        * self.parameter_scaling,  # Max value is 0.5/expansion
                     )
                     for _ in range(n_design_vars_para)
                 ]
@@ -446,7 +447,7 @@ class Optimizer:
             ),
             # constraints=self.constraint(),
             options={"disp": True},
-            tol=1e-6
+            tol=1e-6,
         )
         # Finalize
         self.finalize(optim.x)

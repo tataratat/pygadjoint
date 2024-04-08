@@ -475,8 +475,8 @@ def main():
 
     # Geometry definition
     tiling = [24, 12]
-    parameter_spline_degrees = [0, 0]
-    parameter_spline_cps_dimensions = [24, 12]
+    parameter_spline_degrees = [2, 2]
+    parameter_spline_cps_dimensions = [10, 5]
     parameter_default_value = 0.16914405585511014 / 5  # For volume density 0.3
     volume_density = 0.3
 
@@ -541,6 +541,7 @@ def main():
         n_threads=1,
         write_logfiles=write_logfiles,
         max_volume=max_volume,
+        objective_function_type=2,
         macro_ctps=[],
         parameter_default_value=parameter_default_value,
         parameter_scaling=scaling_factor_parameters,

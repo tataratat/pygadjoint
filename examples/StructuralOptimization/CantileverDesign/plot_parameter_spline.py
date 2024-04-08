@@ -1,6 +1,5 @@
-import splinepy as sp
 import numpy as np
-
+import splinepy as sp
 
 # Create macro spline
 macro_spline = sp.Bezier(
@@ -36,10 +35,12 @@ parameter_spline = sp.BSpline(
 )
 
 # Read data from file
-directory = ("/Users/jzwar/Git/pygadjoints/examples/"
-             "StructuralOptimization/CantileverDesign/")
+directory = (
+    "/Users/jzwar/Git/pygadjoints/examples/"
+    "StructuralOptimization/CantileverDesign/"
+)
 file_name = "log_file_iterations.csv"
-iterations = np.genfromtxt(directory+file_name, delimiter=",")
+iterations = np.genfromtxt(directory + file_name, delimiter=",")
 best_value_id = np.argmin(iterations[:, 1])
 parameters = iterations[best_value_id, 2:]
 

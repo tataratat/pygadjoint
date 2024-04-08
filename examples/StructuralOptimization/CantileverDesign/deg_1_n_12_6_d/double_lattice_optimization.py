@@ -541,6 +541,7 @@ def main():
         n_threads=1,
         write_logfiles=write_logfiles,
         max_volume=max_volume,
+        objective_function_type=2,
         macro_ctps=[],
         parameter_default_value=parameter_default_value,
         parameter_scaling=scaling_factor_parameters,

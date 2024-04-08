@@ -1,9 +1,6 @@
 import numpy as np
 import scipy
 import splinepy as sp
-from create_macro_geometry import (
-    create_volumetric_die_lin as create_volumetric_die,
-)
 
 import pygadjoints
 
@@ -17,16 +14,26 @@ N_THREAD = 1
 # MATERIAL PARAMETERS
 ###
 ACTIVATE_SOURCE_FUNCTION = False
-thermal_conductivity = 20
-density_ = 7850
-thermal_capacity_ = 420
-lambda_ = thermal_conductivity / (density_ * thermal_capacity_)  # 1.172e-5
-source_function_ = 0 / (density_ * thermal_capacity_)
-neumann_flux_ = -4500 / (density_ * thermal_capacity_)
-dirichlet_value = 350
-dim = 3
+Youngs_modulus = 1e6
+poisson_ratio = 0.3
+lame_lambda_ = (
+    Youngs_modulus
+    * poisson_ratio
+    / ((1 - 2 * poisson_ratio) * (1 + poisson_ratio))
+)
+lame_mu_ = Youngs_modulus / (2 * (1 + poisson_ratio))
+number_of_tiles_with_load = 2
+density_ = 1
 
-print(f"Thermal Diffusivity : {lambda_}")
+source_function_ = [0.0, 0.0]
+neumann_force_ = [0, -4500]
+dirichlet_value = [0.0, 0.0]
+dim = 2
+
+print(f"Youngs Modulus    : {Youngs_modulus}")
+print(f"Poisson's ratio   : {poisson_ratio}")
+print(f"First Lame para   : {lame_lambda_}")
+print(f"Second Lame param : {lame_mu_}")
 
 # Define function parameters
 GISMO_OPTIONS = [
@@ -38,7 +45,18 @@ GISMO_OPTIONS = [
             "id": f"{1}",
             "dim": f"{dim}",
         },
-        "text": "0.",
+        "children": [
+            {
+                "tag": "c",
+                "attributes": {"index": "0"},
+                "text": f"{source_function_[0]}",
+            },
+            {
+                "tag": "c",
+                "attributes": {"index": "1"},
+                "text": f"{source_function_[1]}",
+            },
+        ],
     },
     {
         # Boundary Conditions
@@ -51,8 +69,20 @@ GISMO_OPTIONS = [
                     "type": "FunctionExpr",
                     "dim": f"{dim}",
                     "index": "0",
+                    "c": "2",
                 },
-                "text": f"{dirichlet_value}",
+                "children": [
+                    {
+                        "tag": "c",
+                        "attributes": {"index": "0"},
+                        "text": f"{dirichlet_value[0]}",
+                    },
+                    {
+                        "tag": "c",
+                        "attributes": {"index": "1"},
+                        "text": f"{dirichlet_value[1]}",
+                    },
+                ],
             },
             {
                 "tag": "Function",
@@ -60,32 +90,25 @@ GISMO_OPTIONS = [
                     "type": "FunctionExpr",
                     "dim": f"{dim}",
                     "index": "1",
+                    "c": "2",
                 },
-                "text": f"{neumann_flux_}*(1 + 0.5*sqrt((1-10*z)*(1-20*x)))",
+                "children": [
+                    {
+                        "tag": "c",
+                        "attributes": {"index": "0"},
+                        "text": f"{neumann_force_[0]}",
+                    },
+                    {
+                        "tag": "c",
+                        "attributes": {"index": "1"},
+                        "text": f"{neumann_force_[1]}",
+                    },
+                ],
             },
         ],
     },
-    {
-        # Solution Expression
-        "tag": "Function",
-        "attributes": {
-            "type": "FunctionExpr",
-            "dim": f"{dim}",
-            "id": "3",
-        },
-        "text": "0",
-    },
-    {
-        # Target Solution Expression
-        "tag": "Function",
-        "attributes": {
-            "type": "FunctionExpr",
-            "dim": f"{dim}",
-            "id": "11",
-        },
-        "text": "250",
-    },
 ]
+
 
 # Set boundary conditions on all boundary elements of the multipatch (-1)
 GISMO_OPTIONS[1]["children"].append(
@@ -95,7 +118,7 @@ GISMO_OPTIONS[1]["children"].append(
             "type": "Dirichlet",
             "function": str(0),
             "unknown": str(0),
-            "name": f"BID{7}",
+            "name": f"BID{2}",
         },
     }
 )
@@ -123,15 +146,15 @@ class Optimizer:
         microtile,
         para_spline,
         identifier_function_neumann,
+        n_threads=12,
         tiling=[24, 12],
         scaling_factor_objective_function=100,
         n_refinements=1,
         write_logfiles=False,
         max_volume=1.5,
+        objective_function_type=1,
         macro_ctps=None,
         parameter_default_value=0.1,
-        volume_scaling=1,
-        micro_structure_keys=None,
         parameter_scaling=1,
     ):
         self.parameter_default_value = parameter_default_value
@@ -146,18 +169,15 @@ class Optimizer:
         self.scaling_factor_objective_function = (
             scaling_factor_objective_function
         )
-        self.diffusion_solver = pygadjoints.DiffusionProblem()
-        self.diffusion_solver.set_number_of_threads(N_THREAD)
-        self.diffusion_solver.set_material_constants(lambda_)
+        self.linear_solver = pygadjoints.LinearElasticityProblem()
+        self.linear_solver.set_number_of_threads(n_threads)
+        self.linear_solver.set_objective_function(objective_function_type)
+        self.linear_solver.set_material_constants(lame_lambda_, lame_mu_)
         self.last_parameters = None
         self.iteration = 0
         self.write_logfiles = write_logfiles
         self.max_volume = max_volume
         self.macro_ctps = macro_ctps
-        self._volume_scaling = volume_scaling
-        self._ms_keys = (
-            dict() if micro_structure_keys is None else micro_structure_keys
-        )
         self.parameter_scaling = parameter_scaling
 
     def prepare_microstructure(self):
@@ -165,7 +185,7 @@ class Optimizer:
             """
             Parametrization Function (determines thickness)
             """
-            return self.para_spline.evaluate(x)
+            return np.tile(self.para_spline.evaluate(x), [1, 2])
 
         def parameter_sensitivity_function(x):
             basis_function_matrix = np.zeros(
@@ -175,7 +195,9 @@ class Optimizer:
             np.put_along_axis(
                 basis_function_matrix, support, basis_functions, axis=1
             )
-            return basis_function_matrix.reshape(x.shape[0], 1, -1)
+            return np.tile(
+                basis_function_matrix.reshape(x.shape[0], 1, -1), [1, 2, 1]
+            )
 
         # Initialize microstructure generator and assign values
         generator = sp.microstructure.Microstructure()
@@ -196,26 +218,22 @@ class Optimizer:
             def identifier_function(x):
                 distance_2_boundary = boundary_spline.proximities(
                     queries=x,
-                    initial_guess_sample_resolutions=[101]
+                    initial_guess_sample_resolutions=[21]
                     * boundary_spline.para_dim,
                     tolerance=1e-9,
                     return_verbose=True,
                 )[3]
-                return distance_2_boundary.flatten() < 1e-6
+                return distance_2_boundary.flatten() < 1e-8
 
             return identifier_function
 
         multipatch = generator.create(
-            contact_length=0.5,
-            macro_sensitivities=len(self.macro_ctps) > 0,
-            **self._ms_keys,
+            contact_length=0.5, macro_sensitivities=len(self.macro_ctps) > 0
         )
 
         # Reuse existing interfaces
         if self.interfaces is None:
             multipatch.determine_interfaces()
-            print("Number of control-points in geometry")
-            print(np.sum([s.cps.shape[0] for s in multipatch.patches]))
             for i in range(self.macro_spline.dim * 2):
                 multipatch.boundary_from_function(
                     identifier_function(generator.deformation_function, i)
@@ -226,7 +244,6 @@ class Optimizer:
                 )
 
             self.interfaces = multipatch.interfaces
-
         else:
             multipatch.interfaces = self.interfaces
         sp.io.gismo.export(
@@ -268,25 +285,20 @@ class Optimizer:
         self.prepare_microstructure()
         if self.last_parameters is None:
             # First iteration
-            self.diffusion_solver.init(
+            self.linear_solver.init(
                 self.get_filename(), self.n_refinements, 0, True
             )
-            self.diffusion_solver.read_control_point_sensitivities(
-                self.get_filename() + ".fields.xml"
-            )
-            self.control_point_sensitivities = (
-                self.diffusion_solver.get_control_point_sensitivities()
-            )
         else:
-            self.diffusion_solver.update_geometry(
+            self.linear_solver.update_geometry(
                 self.get_filename(), topology_changes=False
             )
-            self.diffusion_solver.read_control_point_sensitivities(
-                self.get_filename() + ".fields.xml"
-            )
-            self.control_point_sensitivities = (
-                self.diffusion_solver.get_control_point_sensitivities()
-            )
+
+        self.linear_solver.read_control_point_sensitivities(
+            self.get_filename() + ".fields.xml"
+        )
+        self.control_point_sensitivities = (
+            self.linear_solver.get_control_point_sensitivities()
+        )
         self.last_parameters = parameters.copy()
 
         # Notify iteration evaluator
@@ -299,21 +311,17 @@ class Optimizer:
             return self.current_objective_function_value
 
         # There is no current solution all checks have been performed
-        self.diffusion_solver.assemble()
-        self.diffusion_solver.solve_linear_system()
+        self.linear_solver.assemble()
+        self.linear_solver.solve_linear_system()
         self.current_objective_function_value = (
-            self.diffusion_solver.objective_function()
+            self.linear_solver.objective_function()
             * self.scaling_factor_objective_function
         )
 
         #
         if self.iteration == 1:
-            self.diffusion_solver.export_multipatch_object(
-                "multipatch_initial"
-            )
-            self.diffusion_solver.export_paraview(
-                "initial", False, 5**3, True
-            )
+            self.linear_solver.export_multipatch_object("multipatch_initial")
+            self.linear_solver.export_paraview("initial", False, 3**2, True)
 
         # Write into logfile
         with open("log_file_iterations.csv", "a") as file1:
@@ -336,9 +344,9 @@ class Optimizer:
         _ = self.evaluate_iteration(parameters)
 
         # Determine Lagrange multipliers
-        self.diffusion_solver.solve_adjoint_system()
+        self.linear_solver.solve_adjoint_system()
         ctps_sensitivities = (
-            self.diffusion_solver.objective_function_deris_wrt_ctps()
+            self.linear_solver.objective_function_deris_wrt_ctps()
         )
         parameter_sensitivities = (
             (ctps_sensitivities @ self.control_point_sensitivities)
@@ -363,7 +371,7 @@ class Optimizer:
 
     def volume(self, parameters):
         self.ensure_parameters(parameters)
-        volume = self.diffusion_solver.volume() * self._volume_scaling
+        volume = self.linear_solver.volume()
 
         # Write into logfile
         with open("log_file_volume.csv", "a") as file1:
@@ -381,15 +389,14 @@ class Optimizer:
 
     def volume_deriv(self, parameters):
         self.ensure_parameters(parameters)
-        volume_sensitivities_ctps = (
-            self.diffusion_solver.volume_deris_wrt_ctps()
-        )
-        volume_sensitivities = (
-            -(volume_sensitivities_ctps @ self.control_point_sensitivities)
-            * self.scaling_factor_objective_function
+        volume_sensitivities_ctps = self.linear_solver.volume_deris_wrt_ctps()
+        volume_sensitivities = -(
+            volume_sensitivities_ctps
+            @ self.control_point_sensitivities
             / self.parameter_scaling
         )
         assert not np.any(np.isnan(self.control_point_sensitivities))
+
         # Write into logfile
         with open("log_file_volume_sensitivities.csv", "a") as file1:
             file1.write(
@@ -410,12 +417,10 @@ class Optimizer:
 
     def finalize(self, parameters):
         self.ensure_parameters(parameters, increase_count=False)
-        self.diffusion_solver.assemble()
-        self.diffusion_solver.solve_linear_system()
-        self.diffusion_solver.export_multipatch_object("multipatch_optimized")
-        self.diffusion_solver.export_paraview(
-            "optimized", False, 10**3, True
-        )
+        self.linear_solver.assemble()
+        self.linear_solver.solve_linear_system()
+        self.linear_solver.export_multipatch_object("multipatch_optimized")
+        self.linear_solver.export_paraview("optimized", False, 3**2, True)
 
     def optimize(self):
         # Initialize the optimization
@@ -437,17 +442,16 @@ class Optimizer:
             bounds=(
                 [
                     (
-                        0.01111 * self.parameter_scaling,
-                        0.4
-                        * self.parameter_scaling,  # Max value is 0.5/expansion
+                        0.0111 * self.parameter_scaling,
+                        0.207106 * self.parameter_scaling,
                     )
                     for _ in range(n_design_vars_para)
                 ]
                 + [(-0.5, 0.5) for _ in range(n_design_vars_macro)]
             ),
-            # constraints=self.constraint(),
+            constraints=self.constraint(),
             options={"disp": True},
-            tol=1e-5,
+            tol=1e-4,
         )
         # Finalize
         self.finalize(optim.x)
@@ -461,8 +465,6 @@ class Optimizer:
             + str(self.tiling[0])
             + "x"
             + str(self.tiling[1])
-            + "x"
-            + str(self.tiling[2])
             + ".xml"
         )
 
@@ -472,18 +474,17 @@ def main():
     # pygdjoints)
 
     # Geometry definition
-    tiling = [6, 9, 9]
-    parametric_boundary_thickness = 0.03
-    parameter_spline_degrees = [1, 1, 1]
-    parameter_spline_cps_dimensions = [4, 2, 2]
-    parameter_default_value = 0.12
+    tiling = [24, 12]
+    parameter_spline_degrees = [1, 1]
+    parameter_spline_cps_dimensions = [12, 6]
+    parameter_default_value = 0.16914405585511014 / 5  # For volume density 0.3
+    volume_density = 0.3
 
-    scaling_factor_objective_function = 1
-    parameter_scaling_value = 20
+    scaling_factor_objective_function = 1 / 140.09956981059864
+    scaling_factor_parameters = 5
     n_refinemenets = 0
 
     sp.settings.NTHREADS = 1
-
     write_logfiles = True
 
     # Create parameters spline
@@ -507,34 +508,43 @@ def main():
         * parameter_default_value,
     )
 
-    # Create Slit Profile geometry
-    macro_spline = create_volumetric_die()
-    macro_spline.insert_knots(
-        2,
-        np.linspace(
-            parametric_boundary_thickness,
-            1 - parametric_boundary_thickness,
-            tiling[2] - 1,
-        ),
+    # Function for neumann boundary
+    def identifier_function_neumann(x):
+        return (
+            x[:, 0]
+            >= (tiling[0] - number_of_tiles_with_load) / tiling[0] * 2.0
+            - 1e-12
+        )
+
+    macro_spline = sp.Bezier(
+        degrees=[1, 1],
+        control_points=[
+            [0.0, 0.0],
+            [2.0, 0.0],
+            [0.0, 1.0],
+            [2.0, 1.0],
+        ],
     )
-    tiling[2] = 1
-    volume_scaling = 1
+
+    dense_volume = macro_spline.integrate.volume()
+    max_volume = dense_volume * volume_density
+    print(f"Max Volume is:{max_volume} out of {dense_volume}")
 
     optimizer = Optimizer(
-        microtile=sp.microstructure.tiles.Cross3DLinear(),
+        microtile=sp.microstructure.tiles.DoubleLattice(),
         macro_spline=macro_spline,
         para_spline=parameter_spline,
-        identifier_function_neumann=None,
+        identifier_function_neumann=identifier_function_neumann,
         tiling=tiling,
         scaling_factor_objective_function=scaling_factor_objective_function,
         n_refinements=n_refinemenets,
+        n_threads=1,
         write_logfiles=write_logfiles,
-        max_volume=0.5,
+        max_volume=max_volume,
+        objective_function_type=1,
         macro_ctps=[],
         parameter_default_value=parameter_default_value,
-        volume_scaling=volume_scaling,
-        micro_structure_keys={"center_expansion": 1.2, "closing_face": "z"},
-        parameter_scaling=parameter_scaling_value,
+        parameter_scaling=scaling_factor_parameters,
     )
 
     # Try some parameters
