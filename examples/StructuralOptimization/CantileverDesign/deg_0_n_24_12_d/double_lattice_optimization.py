@@ -480,7 +480,7 @@ def main():
     parameter_default_value = 0.16914405585511014 / 5  # For volume density 0.3
     volume_density = 0.3
 
-    scaling_factor_objective_function = 1 / 140.09956981059864
+    scaling_factor_objective_function = 1 / 0.006497784904442101
     scaling_factor_parameters = 5
     n_refinemenets = 0
 

@@ -51,7 +51,7 @@ plt.plot(iterations[:, 1])
 plt.show()
 
 
-parameter_spline.cps[:] = parameters.reshape(-1, 1)/5
+parameter_spline.cps[:] = parameters.reshape(-1, 1) / 5
 macro_spline.spline_data["parameter_spline"] = parameter_spline
 macro_spline.show_options["data"] = "parameter_spline"
 macro_spline.show_options["control_points"] = False
@@ -68,7 +68,7 @@ generator = sp.microstructure.Microstructure(
 
 for i in range(iterations.shape[0]):
     parameters = iterations[i, 2:]
-    parameter_spline.cps[:] = parameters.reshape(-1, 1)/5
+    parameter_spline.cps[:] = parameters.reshape(-1, 1) / 5
 
     def parameter_function(x):
         return np.tile(parameter_spline.evaluate(x), [1, 2])
@@ -78,8 +78,5 @@ for i in range(iterations.shape[0]):
     microstructure = generator.create()
 
     microstructure.show(
-        control_points=False,
-        knots=False,
-        c="grey",
-        resolutions=2
+        control_points=False, knots=False, c="grey", resolutions=2
     )
