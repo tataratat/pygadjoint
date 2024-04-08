@@ -4,13 +4,12 @@
 
 #include <chrono>
 
-#include "pygadjoints/timer.hpp"
-
 #ifdef PYGADJOINTS_USE_OPENMP
 #include <omp.h>
 #endif
 
 #include "pygadjoints/custom_expression.hpp"
+#include "pygadjoints/timer.hpp"
 
 namespace pygadjoints {
 
@@ -239,9 +238,10 @@ public:
                 << padding << "Number of patches :\t\t" << mp_pde.nPatches()
                 << "\n"
                 << padding << "Minimum spline degree: \t"
-                << function_basis.minCwiseDegree() << padding
-                << "Maximum spline degree: \t"
-                << function_basis.maxCwiseDegree() << std::endl;
+                << function_basis.minCwiseDegree() << "\n"
+                << padding << "Maximum spline degree: \t"
+                << function_basis.maxCwiseDegree() << "\n"
+                << std::endl;
 
       boundary_conditions.print(std::cout, true);
 
@@ -537,7 +537,7 @@ public:
   void ReadParameterSensitivities(
       std::string filename // Filename for parametrization
   ) {
-    const Timer timer("GetParameterSensitivities");
+    const Timer timer("ReadParameterSensitivities");
     gsFileData<> fd(filename);
     gsMultiPatch<> mp;
     fd.getId(0, mp);
@@ -548,6 +548,7 @@ public:
 
     // Degree-elevations
     mp.degreeElevate(n_degree_elevations);
+
     // h-refine each basis
     for (int r = 0; r < n_refinements; ++r) {
       mp.uniformRefine();
@@ -579,6 +580,9 @@ public:
         if (dof_mapper_ptr->is_free(l_dof, j_patch, 0)) {
           const int global_id = dof_mapper_ptr->index(l_dof, j_patch, 0);
           for (index_t k_dim = 0; k_dim != dimensionality_; k_dim++) {
+            if (global_id + k_dim * totalSz >= totalSz * dimensionality_) {
+              throw std::runtime_error("Dof Mapper is not working properly.");
+            }
             ctps_sensitivities_matrix_ptr->operator()(
                 global_id + k_dim * totalSz, i_design) =
                 // static_cast<double>
@@ -617,15 +621,12 @@ public:
     // Import mesh and load relevant information
     gsMultiPatch<> mp_new;
 
-    // // Degree-elevations
-    // mp.degreeElevate(n_degree_elevations);
-    // // h-refine each basis
-    // for (int r = 0; r < n_refinements; ++r) {
-    //   mp.uniformRefine();
-    // }
-
     gsFileData<> fd(fname);
     fd.getId(0, mp_new);
+
+    // This update does not require refinement or elevation, in theory the mp is
+    // not touched, only the solution field
+
     // Ignore all other information!
     if (mp_new.nPatches() != mp_pde.nPatches()) {
       throw std::runtime_error(
@@ -709,10 +710,10 @@ private:
   /// Function basis
   gsMultiBasis<> function_basis{};
 
-  // Linear System Matrixn_refinements
+  // Linear System Matrix
   std::shared_ptr<const gsSparseMatrix<>> system_matrix = nullptr;
 
-  // Linear System Matrixn_refinements
+  // Linear System Matrix
   std::shared_ptr<gsMatrix<>> ctps_sensitivities_matrix_ptr = nullptr;
 
   // Linear System RHS

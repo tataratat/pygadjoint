@@ -32,8 +32,8 @@ class LinearElasticityProblem {
   typedef gsExprAssembler<>::space space;
   typedef gsExprAssembler<>::solution solution;
 
-  using SolverType = gsSparseSolver<>::CGDiagonal;
-  // using SolverType = gsSparseSolver<>::BiCGSTABILUT;
+  // using SolverType = gsSparseSolver<>::CGDiagonal;
+  using SolverType = gsSparseSolver<>::BiCGSTABILUT;
 
 public:
   LinearElasticityProblem() : expr_assembler_pde(1, 1) {
@@ -66,6 +66,8 @@ public:
       objective_function_ = ObjectiveFunction::compliance;
     } else if (objective_function_selector == 2) {
       objective_function_ = ObjectiveFunction::displacement_norm;
+    } else {
+      throw std::runtime_error("Objective function not known");
     }
   }
 
@@ -79,6 +81,7 @@ public:
    */
   void ExportParaview(const std::string &fname, const bool &plot_elements,
                       const int &sample_rate, const bool &export_b64) {
+    Timer timer("Exporting Paraview");
     // Generate Paraview File
     gsParaviewCollection collection("ParaviewOutput/" + fname,
                                     expr_evaluator_ptr.get());
@@ -101,6 +104,22 @@ public:
     }
     collection.saveTimeStep();
     collection.save();
+  }
+
+  /**
+   * @brief Export the results as Paraview vtu file
+   *
+   * @param fname Filename
+   * @return void
+   */
+  void ExportMultipatchSolution(const std::string &fname) {
+    Timer timer("Exporting Multipatch-Solution");
+    // Generate Paraview File
+    gsMultiPatch<> mpsol;
+    gsFileData<> output;
+    solution_expression_ptr->extract(mpsol);
+    output << mpsol;
+    output.save(fname + ".xml");
   }
 
   /**
@@ -158,8 +177,9 @@ public:
       fd.getId(solution_id, analytical_solution);
       has_source_id = true;
     }
-    fd.getId(bc_id, boundary_conditions);
 
+    // Read Boundary conditions
+    fd.getId(bc_id, boundary_conditions);
     boundary_conditions.setGeoMap(mp_pde);
 
     // Check if Compiler options have been set
@@ -190,7 +210,7 @@ public:
     function_basis.degreeElevate(n_degree_elevations);
 
     // h-refine each basis
-    for (int r = 0; r < n_refinements; ++r) {
+    for (int r{0}; r < n_refinements; ++r) {
       function_basis.uniformRefine();
     }
 
@@ -224,7 +244,6 @@ public:
 
     // Initialize the system
     expr_assembler_pde.initSystem();
-    std::cout << "5 " << std::flush;
 
     // Print summary:
     if (print_summary) {
@@ -236,9 +255,14 @@ public:
                 << padding << "Number of patches :\t\t" << mp_pde.nPatches()
                 << "\n"
                 << padding << "Minimum spline degree: \t"
-                << function_basis.minCwiseDegree() << std::endl;
+                << function_basis.minCwiseDegree() << "\n"
+                << padding << "Maximum spline degree: \t"
+                << function_basis.maxCwiseDegree() << "\n"
+                << std::endl;
 
       boundary_conditions.print(std::cout, true);
+
+      std::cout << "Source Function  : " << source_function << std::endl;
     }
   }
 
@@ -263,7 +287,6 @@ public:
     auto bilin_mu_2 = lame_mu_ * (phys_jacobian % phys_jacobian.tr()) *
                       meas(geometric_mapping);
     auto bilin_combined = (bilin_lambda + bilin_mu_1 + bilin_mu_2);
-    std::cout << bilin_combined << std::endl;
     // Assemble
     expr_assembler_pde.assemble(bilin_combined);
 
@@ -359,8 +382,7 @@ public:
     auto meas_expr_dx = meas_expr * (aux_expr).trace(); // validated
     expr_assembler_pde.assemble(meas_expr_dx.tr());
 
-    const auto volume_deriv =
-        expr_assembler_pde.rhs().transpose() * (*ctps_sensitivities_matrix_ptr);
+    const auto volume_deriv = expr_assembler_pde.rhs().transpose();
 
     py::array_t<double> derivative(volume_deriv.size());
     double *derivative_ptr = static_cast<double *>(derivative.request().ptr);
@@ -468,7 +490,6 @@ public:
     auto BL_mu1_1 = ijac(solution_expression, geometric_mapping); // validated
     auto BL_mu1_2 = ijac(basis_function, geometric_mapping);      // validated
     auto BL_mu1 = lame_mu_ * (BL_mu1_2 % BL_mu1_1) * meas_expr;   // validated
-
     auto BL_mu1_1_dx = -(ijac(solution_expression, geometric_mapping) *
                          aux_expr.cwisetr()); //          validated
     auto BL_mu1_2_dx =
@@ -530,17 +551,16 @@ public:
               .tr());
     }
     // Assumes expr_assembler_pde.rhs() returns 0 when nothing is assembled
-    const auto sensitivities = (expr_assembler_pde.rhs().transpose() +
-                                (lagrange_multipliers_ptr->transpose() *
-                                 expr_assembler_pde.matrix())) *
-                               (*ctps_sensitivities_matrix_ptr);
+    const auto sensitivities_wrt_ctps =
+        (expr_assembler_pde.rhs().transpose() +
+         (lagrange_multipliers_ptr->transpose() * expr_assembler_pde.matrix()));
 
     // Write eigen matrix into a py::array
-    py::array_t<double> sensitivities_py(sensitivities.size());
+    py::array_t<double> sensitivities_py(sensitivities_wrt_ctps.size());
     double *sensitivities_py_ptr =
         static_cast<double *>(sensitivities_py.request().ptr);
-    for (int i{}; i < sensitivities.size(); i++) {
-      sensitivities_py_ptr[i] = sensitivities(0, i);
+    for (int i{}; i < sensitivities_wrt_ctps.size(); i++) {
+      sensitivities_py_ptr[i] = sensitivities_wrt_ctps(0, i);
     }
 
     // Clear for future evaluations
@@ -550,10 +570,10 @@ public:
     return sensitivities_py;
   }
 
-  void
-  GetParameterSensitivities(std::string filename // Filename for parametrization
+  void ReadParameterSensitivities(
+      std::string filename // Filename for parametrization
   ) {
-    const Timer timer("GetParameterSensitivities");
+    const Timer timer("ReadParameterSensitivities");
     gsFileData<> fd(filename);
     gsMultiPatch<> mp;
     fd.getId(0, mp);
@@ -577,8 +597,12 @@ public:
 
     // Start the assignment
     const size_t totalSz = dof_mapper_ptr->freeSize();
-    ctps_sensitivities_matrix_ptr = std::make_shared<gsMatrix<>>();
-    ctps_sensitivities_matrix_ptr->resize(totalSz, design_dimension);
+    if (!ctps_sensitivities_matrix_ptr) {
+      ctps_sensitivities_matrix_ptr = std::make_shared<gsMatrix<>>();
+      ctps_sensitivities_matrix_ptr->resize(totalSz, design_dimension);
+    }
+    // Reinit to zero
+    (*ctps_sensitivities_matrix_ptr) *= 0.;
 
     // Rough overestimate to avoid realloations
     for (int patch_support{}; patch_support < patch_supports.rows();
@@ -591,6 +615,9 @@ public:
              l_dof != dof_mapper_ptr->patchSize(j_patch, k_dim); l_dof++) {
           if (dof_mapper_ptr->is_free(l_dof, j_patch, k_dim)) {
             const int global_id = dof_mapper_ptr->index(l_dof, j_patch, k_dim);
+            if (global_id >= totalSz || i_design >= design_dimension) {
+              throw std::runtime_error("Dof Mapper is not working properly.");
+            }
             ctps_sensitivities_matrix_ptr->operator()(global_id, i_design) =
                 static_cast<double>(mp.patch(j_patch).coef(
                     l_dof, k_dim + k_index_offset * dimensionality_));
@@ -598,6 +625,24 @@ public:
         }
       }
     }
+  }
+
+  py::array_t<double> GetParameterSensitivities() {
+    if (!ctps_sensitivities_matrix_ptr) {
+      throw std::runtime_error("CTPS Matrix has not been computed yet.");
+    }
+
+    const int _rows = ctps_sensitivities_matrix_ptr->rows();
+    const int _cols = ctps_sensitivities_matrix_ptr->cols();
+    py::array_t<double> matrix(_rows * _cols);
+    double *matrix_ptr = static_cast<double *>(matrix.request().ptr);
+    for (int i{}; i < _rows; i++) {
+      for (int j{}; j < _cols; j++) {
+        matrix_ptr[i * _cols + j] = (*ctps_sensitivities_matrix_ptr)(i, j);
+      }
+    }
+    matrix.resize({_rows, _cols});
+    return matrix;
   }
 
   void UpdateGeometry(const std::string &fname, const bool &topology_changes) {
@@ -611,6 +656,10 @@ public:
 
     gsFileData<> fd(fname);
     fd.getId(0, mp_new);
+
+    // This update does not require refinement or elevation, in theory the mp is
+    // not touched, only the solution field
+
     // Ignore all other information!
     if (mp_new.nPatches() != mp_pde.nPatches()) {
       throw std::runtime_error(

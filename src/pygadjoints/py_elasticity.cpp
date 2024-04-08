@@ -22,8 +22,10 @@ void add_elasticity_problem(py::module_ &m) {
 
       // IO routines
       .def("read_control_point_sensitivities",
-           &pygadjoints::LinearElasticityProblem::GetParameterSensitivities,
+           &pygadjoints::LinearElasticityProblem::ReadParameterSensitivities,
            py::arg("fname"))
+      .def("get_control_point_sensitivities",
+           &pygadjoints::LinearElasticityProblem::GetParameterSensitivities)
       .def("update_geometry",
            &pygadjoints::LinearElasticityProblem::UpdateGeometry,
            py::arg("fname"), py::arg("topology_changes"))
@@ -32,6 +34,9 @@ void add_elasticity_problem(py::module_ &m) {
            py::arg("fname"), py::arg("plot_elements"), py::arg("sample_rate"),
            py::arg("binary"))
       .def("export_xml", &pygadjoints::LinearElasticityProblem::ExportXML,
+           py::arg("fname"))
+      .def("export_multipatch_object",
+           &pygadjoints::LinearElasticityProblem::ExportMultipatchSolution,
            py::arg("fname"))
 
       // Assembly and Solving the linear problem

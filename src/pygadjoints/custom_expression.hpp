@@ -73,7 +73,7 @@ public:
   }
 
   const gsFeSpace<Scalar> &rowVar() const { return _u.rowVar(); }
-  const gsFeSpace<Scalar> &colVar() const { return _u.rowVar(); } // overwrite
+  const gsFeSpace<Scalar> &colVar() const { return _u.colVar(); } // overwrite
 
   void print(std::ostream &os) const {
     os << "(";
