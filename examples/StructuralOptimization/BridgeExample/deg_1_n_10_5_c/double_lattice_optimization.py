@@ -64,6 +64,7 @@ GISMO_OPTIONS = [
         "attributes": {"multipatch": "0", "id": "2"},
         "children": [
             {
+                # Dirichlet for clamped surface
                 "tag": "Function",
                 "attributes": {
                     "type": "FunctionExpr",
@@ -84,35 +85,13 @@ GISMO_OPTIONS = [
                     },
                 ],
             },
-        ],
-    },
-    {
-        # Boundary Conditions second patch (symmetry patch)
-        "tag": "boundaryConditions",
-        "attributes": {"multipatch": "1", "id": "2"},
-        "children": [
             {
+                # Neumann boundary
                 "tag": "Function",
                 "attributes": {
                     "type": "FunctionExpr",
                     "dim": f"{dim}",
                     "index": "1",
-                    "c": "1",
-                },
-                "children": [
-                    {
-                        "tag": "c",
-                        "attributes": {"index": "0"},
-                        "text": f"{dirichlet_value[0]}",
-                    },
-                ],
-            },
-            {
-                "tag": "Function",
-                "attributes": {
-                    "type": "FunctionExpr",
-                    "dim": f"{dim}",
-                    "index": "2",
                     "c": "2",
                 },
                 "children": [
@@ -128,12 +107,22 @@ GISMO_OPTIONS = [
                     },
                 ],
             },
+            {
+                # symmetry boundary
+                "tag": "Function",
+                "attributes": {
+                    "type": "FunctionExpr",
+                    "dim": f"{dim}",
+                    "index": "2",
+                },
+                "text": "0",
+            },
         ],
     },
 ]
 
 
-# Set boundary conditions on all boundary elements of the multipatch (-1)
+# Clamped surface
 GISMO_OPTIONS[1]["children"].append(
     {
         "tag": "bc",
@@ -141,32 +130,34 @@ GISMO_OPTIONS[1]["children"].append(
             "type": "Dirichlet",
             "function": str(0),
             "unknown": str(0),
-            "name": f"BID{0}",
+            "name": f"BID{2}",
         },
     }
 )
 
-# Set boundary conditions on all boundary elements of the multipatch (0)
-GISMO_OPTIONS[2]["children"].append(
+# Symmetry condition
+GISMO_OPTIONS[1]["children"].append(
     {
         "tag": "bc",
         "attributes": {
             "type": "Dirichlet",
-            "function": str(1),
+            "function": str(2),
             "unknown": str(0),
-            "name": f"BID{1}",
+            "component": str(0),
+            "name": f"BID{3}",
         },
     }
 )
 
-GISMO_OPTIONS[2]["children"].append(
+# Force condition
+GISMO_OPTIONS[1]["children"].append(
     {
         "tag": "bc",
         "attributes": {
             "type": "Neumann",
-            "function": str(2),
+            "function": str(1),
             "unknown": str(0),
-            "name": f"BID{3}",
+            "name": f"BID{4}",
         },
     }
 )
@@ -255,11 +246,7 @@ class Optimizer:
         generator_sym.microtile = self.microtile_sym
 
         # Creator for identifier functions
-        def identifier_function(deformation_function, face_id):
-            boundary_spline = deformation_function.extract.boundaries()[
-                face_id
-            ]
-
+        def identifier_function(deformation_function, boundary_spline):
             def identifier_function(x):
                 distance_2_boundary = boundary_spline.proximities(
                     queries=x,
@@ -272,9 +259,6 @@ class Optimizer:
 
             return identifier_function
 
-        # multipatch = generator.create(
-        #     contact_length=0.5, macro_sensitivities=len(self.macro_ctps) > 0
-        # )
         multipatch_opt = generator.create(
             contact_length=0.5, macro_sensitivities=len(self.macro_ctps) > 0
         )
@@ -291,24 +275,45 @@ class Optimizer:
                     + [None] * len(multipatch_sym.patches)
                 ],
                 field_dim=2,
-            )  
-
+            )
 
         # Reuse existing interfaces
         if self.interfaces is None:
             multipatch.determine_interfaces()
-            for i in range(self.macro_spline.dim * 2):
-                multipatch.boundary_from_function(
-                    identifier_function(generator.deformation_function, i)
+
+            # Define Boundaries
+            # Clamped boundary -> Gets ID 2
+            multipatch.boundary_from_function(
+                identifier_function(
+                    generator.deformation_function,
+                    self.macro_spline.extract.boundaries([0])[0],
                 )
-            if self.identifier_function_neumann is not None:
-                multipatch.boundary_from_function(
-                    self.identifier_function_neumann, mask=[5]
+            )
+            # Symmetry boundary -> Gets ID 3
+            multipatch.boundary_from_function(
+                identifier_function(
+                    generator.deformation_function,
+                    self.macro_spline_sym.extract.boundaries([1])[0],
                 )
+            )
+            # Neumann boundary -> Gets ID 4
+            multipatch.boundary_from_function(
+                identifier_function(
+                    generator.deformation_function,
+                    self.macro_spline_sym.extract.boundaries([3])[0],
+                )
+            )
 
             self.interfaces = multipatch.interfaces
         else:
             multipatch.interfaces = self.interfaces
+
+        # boundaries = []
+        # for i in range(1, 5):
+        #     boundaries.append(multipatch.boundary_multipatch(i))
+        #     boundaries[-1].show_options["c"] = i
+        # sp.show(boundaries, control_points=False, knots=False)
+
         sp.io.gismo.export(
             self.get_filename(),
             multipatch=multipatch,
@@ -541,9 +546,9 @@ def main():
     parameter_spline_degrees = [1, 1]
     parameter_spline_cps_dimensions = [3, 3]
     parameter_default_value = 0.16914405585511014 / 5  # For volume density 0.3
-    volume_density = 0.3
+    volume_density = 0.5
 
-    scaling_factor_objective_function = 1 / 0.006497784904442101
+    scaling_factor_objective_function = 1 / 30950.77112386213
     scaling_factor_parameters = 5
     n_refinemenets = 0
 
@@ -574,11 +579,6 @@ def main():
     # Function for neumann boundary
     def identifier_function_neumann(x):
         pass
-        # return (
-        #     x[:, 0]
-        #     >= (tiling[0] - number_of_tiles_with_load) / tiling[0] * 2.0
-        #     - 1e-12
-        # )
 
     macro_spline = sp.Bezier(
         degrees=[2, 1],
@@ -654,7 +654,7 @@ def main():
         write_logfiles=write_logfiles,
         max_volume=max_volume,
         objective_function_type=1,
-        macro_ctps=[],
+        macro_ctps=[2, 3, 8, 9],
         parameter_default_value=parameter_default_value,
         parameter_scaling=scaling_factor_parameters,
         macro_spline_sym=macro_spline_sym,
