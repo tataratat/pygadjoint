@@ -141,8 +141,9 @@ GISMO_OPTIONS[1]["children"].append(
         "tag": "bc",
         "attributes": {
             "type": "Dirichlet",
-            "function": str(0),
+            "function": str(2),
             "unknown": str(0),
+            "component": str(1),
             "name": f"BID{7}",
         },
     }
@@ -275,14 +276,6 @@ class Optimizer:
             self.interfaces = multipatch.interfaces
         else:
             multipatch.interfaces = self.interfaces
-
-        blist = []
-        for i in range(1, 8):
-            blist.append(multipatch.boundary_multipatch(i))
-            blist[-1].show_options["c"] = i
-
-        sp.show(blist, control_points=False,
-                knots=False, scalarbar=True, n_colors=7)
 
         sp.io.gismo.export(
             self.get_filename(),
@@ -548,11 +541,7 @@ def main():
 
     # Function for neumann boundary
     def identifier_function_neumann(x):
-        return (
-            x[:, 0]
-            >= (number_of_tiles_with_load) / tiling[0] * 5.0
-            - 1e-12
-        )
+        return x[:, 0] >= (number_of_tiles_with_load) / tiling[0] * 5.0 - 1e-12
 
     def identifier_function_dirichlet(x):
         return (
@@ -580,7 +569,9 @@ def main():
         macro_spline=macro_spline,
         para_spline=parameter_spline,
         identifier_function_neumann=[
-            identifier_function_neumann, identifier_function_dirichlet],
+            identifier_function_neumann,
+            identifier_function_dirichlet,
+        ],
         tiling=tiling,
         scaling_factor_objective_function=scaling_factor_objective_function,
         n_refinements=n_refinemenets,

@@ -347,7 +347,7 @@ class Optimizer:
             * inverse_scaling
         )
         self.macro_spline.cps.ravel()[self.macro_ctps] = (
-            parameters[self.para_spline.cps.shape[0] :]
+            parameters[self.para_spline.cps.shape[0]:]
             + self.macro_spline_original.cps.ravel()[self.macro_ctps]
         )
         self.prepare_microstructure()
@@ -540,17 +540,18 @@ class Optimizer:
 def main():
     # Set the number of available threads (will be passed to splinepy and
     # pygdjoints)
+    # Optimization parameters
+    scaling_factor_objective_function = 1 / 30950.77112386213
+    scaling_factor_parameters = 5
+    n_refinemenets = 0
 
     # Geometry definition
     tiling = [10, 5]
     parameter_spline_degrees = [1, 1]
     parameter_spline_cps_dimensions = [3, 3]
-    parameter_default_value = 0.16914405585511014 / 5  # For volume density 0.3
+    # For volume density 0.3
+    parameter_default_value = 0.16914405585511014 / scaling_factor_parameters
     volume_density = 0.5
-
-    scaling_factor_objective_function = 1 / 30950.77112386213
-    scaling_factor_parameters = 5
-    n_refinemenets = 0
 
     sp.settings.NTHREADS = 1
     write_logfiles = True
