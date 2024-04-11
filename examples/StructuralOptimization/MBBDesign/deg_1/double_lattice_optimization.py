@@ -310,7 +310,7 @@ class Optimizer:
             * inverse_scaling
         )
         self.macro_spline.cps.ravel()[self.macro_ctps] = (
-            parameters[self.para_spline.cps.shape[0]:]
+            parameters[self.para_spline.cps.shape[0] :]
             + self.macro_spline_original.cps.ravel()[self.macro_ctps]
         )
         self.prepare_microstructure()

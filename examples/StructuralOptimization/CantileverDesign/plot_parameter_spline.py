@@ -5,7 +5,7 @@ from vedo import Plotter
 
 # Color scheme
 TUWIEN_COLOR_SCHEME = {
-    "blue": (0,  102, 153),
+    "blue": (0, 102, 153),
     "black": (0, 0, 0),
     "white": (255, 255, 255),
     "blue_1": (84, 133, 171),
@@ -40,7 +40,8 @@ plotter = Plotter(
     offscreen=True,
     title="",
     bg=(255, 255, 255),
-    axes=0,)
+    axes=0,
+)
 
 
 # Create macro spline
@@ -77,7 +78,8 @@ macro_spline.insert_knots(1, parameter_spline.kvs[1])
 
 # Read data from file
 parent_directory = (
-    "/Users/jzwar/Git/pygadjoints/examples/StructuralOptimization/CantileverDesign/results/CantileverDesign/"
+    "/Users/jzwar/Git/pygadjoints/examples/"
+    "StructuralOptimization/CantileverDesign/results/CantileverDesign/"
 )
 child_directory = (
     f"deg_{parameter_spline_degrees[0]}_n_{parameter_spline_cps_dimensions[0]}"
@@ -88,13 +90,18 @@ iterations_file_name = "log_file_iterations.csv"
 iterations = np.genfromtxt(directory + iterations_file_name, delimiter=",")
 sensitivities_file_name = "log_file_sensitivities.csv"
 sensitivities = np.genfromtxt(
-    directory + sensitivities_file_name, delimiter=",")
+    directory + sensitivities_file_name, delimiter=","
+)
 
 
 # Plot convergence
-plt.semilogy(iterations[:, 1], '-x')
-plt.semilogy(np.linalg.norm(
-    sensitivities[:, 1:np.prod(parameter_spline_cps_dimensions)+1], axis=1))
+plt.semilogy(iterations[:, 1], "-x")
+plt.semilogy(
+    np.linalg.norm(
+        sensitivities[:, 1 : np.prod(parameter_spline_cps_dimensions) + 1],
+        axis=1,
+    )
+)
 print(f"Improvement : {1 - np.min(iterations[:,1]) / iterations[0,1]}")
 # plt.show()
 
@@ -103,13 +110,12 @@ best_value_id = np.argmin(iterations[:, 1])
 parameters = iterations[best_value_id, 2:]
 
 parameter_spline.cps[:] = parameters.reshape(-1, 1) / scaling_factor
-vmin = np.min(iterations[:, 2:])/5
-vmax = np.max(iterations[:, 2:])/5
+vmin = np.min(iterations[:, 2:]) / 5
+vmax = np.max(iterations[:, 2:]) / 5
 viz_lizt = []
 for i, (patch, para) in enumerate(
     zip(macro_spline.extract.beziers(), parameter_spline.extract.beziers())
 ):
-
     para.cps[:] = parameter_spline.cps[i, 0]
     patch.spline_data["parameter_spline"] = para
     patch.show_options["data"] = "parameter_spline"
@@ -119,14 +125,16 @@ for i, (patch, para) in enumerate(
     patch.show_options["cmap"] = "jet"
     patch.show_options["vmin"] = vmin
     patch.show_options["vmax"] = vmax
-    viz_lizt.append(patch.show(
-        lighting="off",
-        resolutions=3,
-        return_showable=True,
-    )["spline"])
+    viz_lizt.append(
+        patch.show(
+            lighting="off",
+            resolutions=3,
+            return_showable=True,
+        )["spline"]
+    )
 
 plotter.show(viz_lizt, zoom="tightest")
-plotter.screenshot(directory + f"MacroSpline.png")
+plotter.screenshot(directory + "MacroSpline.png")
 
 generator = sp.microstructure.Microstructure(
     deformation_function=macro_spline_creator,
