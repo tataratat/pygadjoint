@@ -11,7 +11,7 @@ ULTRA_VERBOSE = True
 N_THREAD = 1
 
 ###
-# MATERIAL PARAMETERS
+# MATERIAL PARAMETERS (PETG)
 ###
 ACTIVATE_SOURCE_FUNCTION = False
 Youngs_modulus = 1.5e3
@@ -183,6 +183,7 @@ class Optimizer:
         macro_ctps=None,
         parameter_default_value=0.1,
         parameter_scaling=1,
+        volume_scaling=1,
         macro_spline_sym=None,
         microtile_sym=None,
     ):
@@ -208,6 +209,7 @@ class Optimizer:
         self.max_volume = max_volume
         self.macro_ctps = macro_ctps
         self.parameter_scaling = parameter_scaling
+        self.volume_scaling = volume_scaling
         self.macro_spline_sym = macro_spline_sym
         self.microtile_sym = microtile_sym
 
@@ -242,7 +244,7 @@ class Optimizer:
 
         generator_sym = sp.microstructure.Microstructure()
         generator_sym.deformation_function = self.macro_spline_sym
-        generator_sym.tiling = [1, self.tiling[1]]
+        generator_sym.tiling = [3, self.tiling[1]]
         generator_sym.microtile = self.microtile_sym
 
         # Creator for identifier functions
@@ -292,14 +294,14 @@ class Optimizer:
             # Symmetry boundary -> Gets ID 3
             multipatch.boundary_from_function(
                 identifier_function(
-                    generator.deformation_function,
+                    generator_sym.deformation_function,
                     self.macro_spline_sym.extract.boundaries([1])[0],
                 )
             )
             # Neumann boundary -> Gets ID 4
             multipatch.boundary_from_function(
                 identifier_function(
-                    generator.deformation_function,
+                    generator_sym.deformation_function,
                     self.macro_spline_sym.extract.boundaries([3])[0],
                 )
             )
@@ -453,7 +455,7 @@ class Optimizer:
                 + "\n"
             )
 
-        return self.max_volume - volume
+        return (self.max_volume - volume) * self.volume_scaling
 
     def volume_deriv(self, parameters):
         self.ensure_parameters(parameters)
@@ -478,7 +480,7 @@ class Optimizer:
                 )
                 + "\n"
             )
-        return volume_sensitivities
+        return volume_sensitivities * self.volume_scaling
 
     def constraint(self):
         return {"type": "ineq", "fun": self.volume, "jac": self.volume_deriv}
@@ -540,18 +542,23 @@ class Optimizer:
 def main():
     # Set the number of available threads (will be passed to splinepy and
     # pygdjoints)
+
     # Optimization parameters
-    scaling_factor_objective_function = 1 / 30950.77112386213
+    # For volume density 0.5
+    objective_function = 2
+    macro_ctps = [2, 3, 8, 9]
+    scaling_factor_objective_function = 1 / 7348.600113223338
     scaling_factor_parameters = 5
+    scaling_factor_volume = 1 / 1166.6666653306665
     n_refinemenets = 0
+    volume_density = 0.4
 
     # Geometry definition
     tiling = [10, 5]
     parameter_spline_degrees = [1, 1]
     parameter_spline_cps_dimensions = [3, 3]
-    # For volume density 0.3
-    parameter_default_value = 0.16914405585511014 / scaling_factor_parameters
-    volume_density = 0.5
+    # For volume density 0.5
+    parameter_default_value = 0.27249043097027315 / scaling_factor_parameters
 
     sp.settings.NTHREADS = 1
     write_logfiles = True
@@ -581,6 +588,7 @@ def main():
     def identifier_function_neumann(x):
         pass
 
+    # design domain macro spline
     macro_spline = sp.Bezier(
         degrees=[2, 1],
         control_points=[
@@ -593,6 +601,7 @@ def main():
         ],
     )
 
+    # fixed domain macro spline
     macro_spline_sym = sp.Bezier(
         degrees=[1, 1],
         control_points=[
@@ -602,6 +611,8 @@ def main():
             [85.0, 80.0],
         ],
     )
+
+    # generate microtile for fixed domain for conformity to design domain
     microtile_spline_list = []
     microtile_spline_list.append(
         sp.Bezier(
@@ -614,7 +625,6 @@ def main():
             ],
         )
     )
-
     microtile_spline_list.append(
         sp.Bezier(
             degrees=[1, 1],
@@ -626,7 +636,6 @@ def main():
             ],
         )
     )
-
     microtile_spline_list.append(
         sp.Bezier(
             degrees=[1, 1],
@@ -654,10 +663,11 @@ def main():
         n_threads=1,
         write_logfiles=write_logfiles,
         max_volume=max_volume,
-        objective_function_type=1,
-        macro_ctps=[2, 3, 8, 9],
+        objective_function_type=objective_function,
+        macro_ctps=macro_ctps,
         parameter_default_value=parameter_default_value,
         parameter_scaling=scaling_factor_parameters,
+        volume_scaling=scaling_factor_volume,
         macro_spline_sym=macro_spline_sym,
         microtile_sym=microtile_spline_list,
     )
