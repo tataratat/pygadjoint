@@ -207,20 +207,21 @@ class Optimizer:
             """
             Parametrization Function (determines thickness)
             """
-            # return np.tile(self.para_spline.evaluate(x), [1, 2])
             return self.para_spline.evaluate(x)
-        
+
         def parameter_sensitivity_function(x):
-            basis_function_matrix = np.zeros(
-                (x.shape[0], np.prod(self.para_spline.control_points.shape))
-            )
-            basis_functions, support = self.para_spline.basis_and_support(x)
-            np.put_along_axis(
-                basis_function_matrix, support, basis_functions, axis=1
-            )
-            return np.tile(
-                basis_function_matrix.reshape(x.shape[0], 1, -1), [1, 2, 1]
-            )
+            basis_function_matrix = sp.utils.data.make_matrix(
+                *self.para_spline.basis_and_support(x),
+                self.para_spline.cps.shape[0],
+                as_array=True,
+            ).reshape(x.shape[0], 1, self.para_spline.cps.shape[0])
+
+            basis_function_matrix = np.repeat(
+                np.tile(basis_function_matrix, [1, 2, 1]),repeats=2, axis=2
+                )
+            basis_function_matrix[:, 0, 1::2] = 0
+            basis_function_matrix[:, 1, 0::2] = 0
+            return basis_function_matrix
 
         # Initialize microstructure generator and assign values
         generator = sp.microstructure.Microstructure()
@@ -536,12 +537,12 @@ def main():
     # Optimization parameters
     # For volume density 0.5
     objective_function = 1
-    macro_ctps = []
+    macro_ctps = [2, 3, 8, 9]
     scaling_factor_objective_function = 1 / 46898.43832478186
     scaling_factor_parameters = 5
     scaling_factor_volume = 1 / 1166.6666653306665
     n_refinemenets = 0
-    volume_density = 0.5
+    volume_density = 0.55
 
     # Geometry definition
     tiling = [10, 5]

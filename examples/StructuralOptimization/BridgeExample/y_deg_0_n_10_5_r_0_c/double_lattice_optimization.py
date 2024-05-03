@@ -540,7 +540,7 @@ def main():
     scaling_factor_parameters = 5
     scaling_factor_volume = 1 / 1166.6666653306665
     n_refinemenets = 0
-    volume_density = 0.4
+    volume_density = 0.55
 
     # Geometry definition
     tiling = [10, 5]
